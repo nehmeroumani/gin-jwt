@@ -118,7 +118,8 @@ func main() {
 	r.POST("/login", authMiddleware.LoginHandler)
 
 	auth := r.Group("/auth")
-	auth.Use(authMiddleware.MiddlewareFunc())
+	auth.Use(authMiddleware.ParseToken, authMiddleware.ForceAuthentication)
+
 	{
 		auth.GET("/hello", helloHandler)
 		auth.GET("/refresh_token", authMiddleware.RefreshHandler)

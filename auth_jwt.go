@@ -29,7 +29,7 @@ type GinJWTMiddleware struct {
 	// Optional, default is HS256.
 	SigningAlgorithm string
 
-	// Secret key used for signing. Required if the two keys algorithm is not used
+	// Secret key used for signing. Required only if the asymmetric algorithm is not used
 	Key []byte
 
 	// Duration that a jwt token is valid. Optional, defaults to one hour.
@@ -301,27 +301,18 @@ func (mw *GinJWTMiddleware) MiddlewareInit() error {
 	return nil
 }
 
-// MiddlewareFunc makes GinJWTMiddleware implement the Middleware interface.
-func (mw *GinJWTMiddleware) MiddlewareFunc() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		mw.middlewareImpl(c)
-	}
+func (mw *GinJWTMiddleware) ParseToken(c *gin.Context) {
+	mw.parseToken(c)
 }
 
-func (mw *GinJWTMiddleware) middlewareImpl(c *gin.Context) {
-	token, err := mw.parseToken(c)
-
-	if err != nil {
-		mw.unauthorized(c, http.StatusUnauthorized, mw.HTTPStatusMessageFunc(err, c))
-		return
+func (mw *GinJWTMiddleware) ForceAuthentication(c *gin.Context) {
+	if err, exists := c.Get("JWT_TOKEN_ERR"); exists && err != nil {
+		if e, ok := err.(error); ok {
+			mw.unauthorized(c, http.StatusUnauthorized, mw.HTTPStatusMessageFunc(e, c))
+			return
+		}
 	}
-
-	claims := token.Claims.(jwt.MapClaims)
-
-	id := mw.IdentityHandler(claims)
-	c.Set("JWT_PAYLOAD", claims)
-	c.Set("USER_ID", id)
-
+	id, _ := c.Get("USER_ID")
 	if !mw.Authorizator(id, c) {
 		mw.unauthorized(c, http.StatusForbidden, mw.HTTPStatusMessageFunc(ErrForbidden, c))
 		return
@@ -553,8 +544,13 @@ func (mw *GinJWTMiddleware) parseToken(c *gin.Context) (*jwt.Token, error) {
 	}); err == nil {
 		// save token string if vaild
 		c.Set("JWT_TOKEN", token)
+		claims := t.Claims.(jwt.MapClaims)
+		c.Set("JWT_PAYLOAD", claims)
+		c.Set("USER_ID", mw.IdentityHandler(claims))
+
 		return t, nil
 	}
+	c.Set("JWT_TOKEN_ERR", err)
 	return nil, err
 }
 
