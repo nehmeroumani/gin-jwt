@@ -29,7 +29,7 @@ type GinJWTMiddleware struct {
 	// Optional, default is HS256.
 	SigningAlgorithm string
 
-	// Secret key used for signing. Required.
+	// Secret key used for signing. Required if the two keys algorithm is not used
 	Key []byte
 
 	// Duration that a jwt token is valid. Optional, defaults to one hour.
@@ -107,6 +107,8 @@ type GinJWTMiddleware struct {
 
 	// Allow insecure cookies for development over http
 	SecureCookie bool
+
+	DomainName string
 }
 
 var (
@@ -301,12 +303,6 @@ func (mw *GinJWTMiddleware) MiddlewareInit() error {
 
 // MiddlewareFunc makes GinJWTMiddleware implement the Middleware interface.
 func (mw *GinJWTMiddleware) MiddlewareFunc() gin.HandlerFunc {
-	if err := mw.MiddlewareInit(); err != nil {
-		return func(c *gin.Context) {
-			mw.unauthorized(c, http.StatusInternalServerError, mw.HTTPStatusMessageFunc(err, nil))
-		}
-	}
-
 	return func(c *gin.Context) {
 		mw.middlewareImpl(c)
 	}
@@ -324,7 +320,7 @@ func (mw *GinJWTMiddleware) middlewareImpl(c *gin.Context) {
 
 	id := mw.IdentityHandler(claims)
 	c.Set("JWT_PAYLOAD", claims)
-	c.Set("userID", id)
+	c.Set("USER_ID", id)
 
 	if !mw.Authorizator(id, c) {
 		mw.unauthorized(c, http.StatusForbidden, mw.HTTPStatusMessageFunc(ErrForbidden, c))
@@ -338,12 +334,6 @@ func (mw *GinJWTMiddleware) middlewareImpl(c *gin.Context) {
 // Payload needs to be json in the form of {"username": "USERNAME", "password": "PASSWORD"}.
 // Reply will be of the form {"token": "TOKEN"}.
 func (mw *GinJWTMiddleware) LoginHandler(c *gin.Context) {
-
-	// Initial middleware default setting.
-	if err := mw.MiddlewareInit(); err != nil {
-		mw.unauthorized(c, http.StatusInternalServerError, mw.HTTPStatusMessageFunc(err, c))
-		return
-	}
 
 	var loginVals Login
 
@@ -396,7 +386,7 @@ func (mw *GinJWTMiddleware) LoginHandler(c *gin.Context) {
 			tokenString,
 			maxage,
 			"/",
-			"",
+			mw.DomainName,
 			mw.SecureCookie,
 			true,
 		)
@@ -457,7 +447,7 @@ func (mw *GinJWTMiddleware) RefreshHandler(c *gin.Context) {
 			tokenString,
 			maxage,
 			"/",
-			"",
+			mw.DomainName,
 			mw.SecureCookie,
 			true,
 		)
@@ -550,7 +540,8 @@ func (mw *GinJWTMiddleware) parseToken(c *gin.Context) (*jwt.Token, error) {
 		return nil, err
 	}
 
-	return jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
+	var t *jwt.Token
+	if t, err = jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
 		if jwt.GetSigningMethod(mw.SigningAlgorithm) != t.Method {
 			return nil, ErrInvalidSigningAlgorithm
 		}
@@ -558,11 +549,13 @@ func (mw *GinJWTMiddleware) parseToken(c *gin.Context) (*jwt.Token, error) {
 			return mw.pubKey, nil
 		}
 
+		return mw.Key, nil
+	}); err == nil {
 		// save token string if vaild
 		c.Set("JWT_TOKEN", token)
-
-		return mw.Key, nil
-	})
+		return t, nil
+	}
+	return nil, err
 }
 
 func (mw *GinJWTMiddleware) unauthorized(c *gin.Context, code int, message string) {

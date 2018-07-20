@@ -111,6 +111,10 @@ func main() {
 		TimeFunc: time.Now,
 	}
 
+	if err := authMiddleware.MiddlewareInit(); err != nil{
+		log.Fatal(err)
+	}
+
 	r.POST("/login", authMiddleware.LoginHandler)
 
 	auth := r.Group("/auth")
