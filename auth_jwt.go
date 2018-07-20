@@ -528,6 +528,7 @@ func (mw *GinJWTMiddleware) parseToken(c *gin.Context) (*jwt.Token, error) {
 	}
 
 	if err != nil {
+		c.Set("JWT_TOKEN_ERR", err)
 		return nil, err
 	}
 
